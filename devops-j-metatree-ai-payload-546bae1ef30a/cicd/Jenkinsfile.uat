@@ -1,0 +1,98 @@
+pipeline {
+  agent any
+
+  environment {
+    REGION      = 'ap-southeast-1'
+    ImgName     = 'metatree-payload-uat'
+    ImgTag      = "${currentBuild.number}"
+    CntName     = 'metatree-payload-uat'
+    DockerFile  = 'Dockerfile.uat'
+    ECR_URL     = '026559016816.dkr.ecr.ap-southeast-1.amazonaws.com'
+    SSHCreds    = 'jr_sg_ssh_key'
+    SSHUser     = 'ubuntu'
+    SSHServerIP = '18.143.240.211'
+    CICD_Dir    = 'cicd'
+  }
+
+  options {
+    // Keep maximum 10 archievd artifacts
+    buildDiscarder(logRotator(numToKeepStr:'10', artifactNumToKeepStr:'10'))
+    // No simultaneous builds
+    disableConcurrentBuilds()
+    durabilityHint('MAX_SURVIVABILITY') // PERFORMANCE_OPTIMIZED or SURVIVABLE_NONATOMIC
+    ansiColor('xterm')
+  }
+
+  stages {
+    stage('Build image') {
+      steps {
+        echo 'Building metatree frontend image...'
+        sh """
+          docker --version
+          docker build -t $ECR_URL/$ImgName:$ImgTag -f $DockerFile .
+        """
+      }
+    }
+
+    stage('Push image') {
+      steps {
+        withVault(configuration: [timeout: 60, vaultCredentialId: 'Vault Credential', vaultUrl: 'https://vault.jiangren.com.au'], vaultSecrets: [[path: 'secret_aws/aws_uat', secretValues: [[vaultKey: 'AWS_ACCESS_KEY_ID'], [vaultKey: 'AWS_SECRET_ACCESS_KEY']]]]) {
+          // Log in to Amazon ECR
+          sh "aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin ${ECR_URL}"
+
+          // Push the Docker image to ECR
+          sh "docker push $ECR_URL/$ImgName:$ImgTag"
+        }
+      }
+    }
+
+    stage('Restart Service Remotely') {
+      steps {
+        dir("$CICD_Dir") {
+          sh '''
+            sed -i "s/REGION/$REGION/g" uat_deploy.sh
+            sed -i "s/ECR_URL/$ECR_URL/g" uat_deploy.sh
+            sed -i "s/CntName/$CntName/g" uat_deploy.sh
+            sed -i "s/ImgName/$ImgName/g" uat_deploy.sh
+            sed -i "s/ImgTag/$ImgTag/g" uat_deploy.sh
+          '''
+
+          sshagent(credentials: ["$SSHCreds"]) {
+            sh """
+              ssh -o StrictHostKeyChecking=no $SSHUser@$SSHServerIP 'bash -s' <uat_deploy.sh
+            """
+          }
+        }
+      }
+    }
+
+    // stage('Refresh Cloudfront') {
+    //   steps {
+    //     withVault(configuration: [timeout: 60, vaultCredentialId: 'Vault Credential', vaultUrl: 'https://vault.jiangren.com.au'], vaultSecrets: [[path: 'secret_aws/aws_uat', secretValues: [[vaultKey: 'AWS_ACCESS_KEY_ID'], [vaultKey: 'AWS_SECRET_ACCESS_KEY']]]]) {
+    //       withVault([configuration: [ vaultUrl: 'https://vault.jiangren.com.au', vaultCredentialId: 'Vault Credential', timeout: 60, engineVersion: 2 ],
+    //               vaultSecrets: [[path: 'jenkins_jr_metatree_payload/uat', engineVersion: 2, secretValues: [
+    //                             [vaultKey: 'DISTRIBUTION_ID'],[vaultKey: 'PATHS_TO_INVALIDATE']]]]]) {
+    //         //update cloudfront
+    //         sleep 120
+    //         sh 'aws cloudfront create-invalidation --distribution-id  "${DISTRIBUTION_ID}" --paths "${PATHS_TO_INVALIDATE}" '
+    //                             }
+    //     }
+    //   }
+    // }
+  }
+
+  post {
+    always {
+      //clean jenkins workspace
+      cleanWs()
+    }
+    success {
+      bitbucketStatusNotify(buildState: 'SUCCESSFUL')
+      echo 'Success.'
+    }
+    failure {
+      bitbucketStatusNotify(buildState: 'FAILED')
+      echo 'Failure.'
+    }
+  }
+}

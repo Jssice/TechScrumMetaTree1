@@ -1,0 +1,84 @@
+pipeline {
+  agent any
+
+  environment {
+    REGION      = 'ap-southeast-1'
+    ImgName     = 'metatree-server-uat'
+    ImgTag      = "${currentBuild.number}"
+    CntName     = 'metatree-server-uat'
+    DockerFile  = 'Dockerfile.uat'
+    ECR_URL     = '026559016816.dkr.ecr.ap-southeast-1.amazonaws.com'
+    SSHCreds    = 'jr_sg_ssh_key'
+    SSHUser     = 'ubuntu'
+    SSHServerIP = '13.213.161.147'
+    CICD_Dir    = 'cicd'
+  }
+
+  options {
+    // Keep maximum 10 archievd artifacts
+    buildDiscarder(logRotator(numToKeepStr:'10', artifactNumToKeepStr:'10'))
+    // No simultaneous builds
+    disableConcurrentBuilds()
+    durabilityHint('MAX_SURVIVABILITY') // PERFORMANCE_OPTIMIZED or SURVIVABLE_NONATOMIC
+    ansiColor('xterm')
+  }
+
+  stages {
+    stage('Build image') {
+      steps {
+        echo 'Building metatree frontend image...'
+        sh """
+          docker --version
+          docker build -t $ECR_URL/$ImgName:$ImgTag -f $DockerFile .
+        """
+      }
+    }
+
+    stage('Push image') {
+      steps {
+        withVault(configuration: [timeout: 60, vaultCredentialId: 'Vault Credential', vaultUrl: 'https://vault.jiangren.com.au'], vaultSecrets: [[path: 'secret_aws/aws_uat', secretValues: [[vaultKey: 'AWS_ACCESS_KEY_ID'], [vaultKey: 'AWS_SECRET_ACCESS_KEY']]]]) {
+          // Log in to Amazon ECR
+          sh "aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin ${ECR_URL}"
+
+          // Push the Docker image to ECR
+          sh "docker push $ECR_URL/$ImgName:$ImgTag"
+        }
+      }
+    }
+
+    stage('Restart Service Remotely') {
+      steps {
+        dir("$CICD_Dir") {
+          sh '''
+            sed -i "s/REGION/$REGION/g" uat_deploy.sh
+            sed -i "s/ECR_URL/$ECR_URL/g" uat_deploy.sh
+            sed -i "s/CntName/$CntName/g" uat_deploy.sh
+            sed -i "s/ImgName/$ImgName/g" uat_deploy.sh
+            sed -i "s/ImgTag/$ImgTag/g" uat_deploy.sh
+          '''
+
+          sshagent(credentials: ["$SSHCreds"]) {
+            sh """
+              ssh -o StrictHostKeyChecking=no $SSHUser@$SSHServerIP 'bash -s' <uat_deploy.sh
+            """
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      //clean jenkins workspace
+      cleanWs()
+    }
+    success {
+      bitbucketStatusNotify(buildState: 'SUCCESSFUL')
+      echo 'Success.'
+    }
+    failure {
+      bitbucketStatusNotify(buildState: 'FAILED')
+      echo 'Failure.'
+    }
+  }
+}

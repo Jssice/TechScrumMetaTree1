@@ -1,0 +1,39 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "commonjs",
+		"sourceMap": true,
+		"outDir": "./dist",
+		"rootDir": "./src",
+		"strict": true,
+		"noImplicitAny": true,
+		"moduleResolution": "node",
+		"baseUrl": "./src",
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"paths": {
+			"@/constants/*": ["constants/*"],
+			"@/constants": ["constants/"],
+			"@/configs/*": ["configs/*"],
+			"@/configs": ["configs/"],
+			"@/routes/*": ["routes/*"],
+			"@/routes": ["routes/"],
+			"@/controllers/*": ["controllers/*"],
+			"@/controllers": ["controllers/"],
+			"@/services/*": ["services/*"],
+			"@/services": ["services/"],
+			"@/loaders/*": ["loaders/*"],
+			"@/loaders": ["loaders"],
+			"@/middlewares/*": ["middlewares/*"],
+			"@/middlewares": ["middlewares/"],
+			"@/utils/*": ["utils/*"],
+			"@/utils": ["utils/"],
+			"@/interfaces/*": ["types/*"],
+			"@/interfaces": ["types/"]
+		}
+	},
+	"lib": ["es2017"],
+	"include": ["src/**/*"],
+	"exclude": ["node_modules"]
+}

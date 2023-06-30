@@ -1,0 +1,29 @@
+# Set the base images version to node 16.15.1 (LTS)
+FROM node:16.14.0 AS builder
+
+ENV NODE_ENV=uat
+
+WORKDIR /app
+# Above we set the build environment as a folder called /app in the docker container to prevent clashes
+
+COPY package*.json tsconfig.json ./
+# To prevent repeated npm installs anytime we make any change, we'd copy over the package.json and install things first
+
+COPY . .
+
+# Install dependencies
+RUN npm install
+RUN npm run build:uat
+
+FROM builder as runtime
+
+ENV NODE_ENV=uat
+WORKDIR /app
+
+# Copy the rest of the project over to the /app folder in the container
+COPY --from=builder /app/dist ./dist
+
+# The server listens at PORT 5000
+EXPOSE 5000
+
+CMD [ "npm", "run", "start" ]
