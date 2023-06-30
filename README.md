@@ -3,6 +3,7 @@
 ### env
 
 bitbucket: fake-metatree-ai
+https://bitbucket.org/fake-metatree-ai-nextjs/workspace/repositories
 
 notion: 
 
